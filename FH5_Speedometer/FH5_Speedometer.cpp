@@ -30,56 +30,89 @@ string GetCarClass(long pi) {
 }
 
 void StartWebServer() {
-    // 1. Configurare Socket TCP (diferit de UDP-ul din main)
     SOCKET webSocket;
     struct sockaddr_in server, client;
 
-    webSocket = socket(AF_INET, SOCK_STREAM, 0); // SOCK_STREAM = TCP
-    if (webSocket == INVALID_SOCKET) {
-        cout << "[Web] Error creating socket" << endl;
-        return;
-    }
+    webSocket = socket(AF_INET, SOCK_STREAM, 0);
+    if (webSocket == INVALID_SOCKET) return;
 
     server.sin_family = AF_INET;
-    server.sin_addr.s_addr = INADDR_ANY; // Asculta pe orice IP local
-    server.sin_port = htons(8080);       // Portul 8080 (standard pentru web development)
+    server.sin_addr.s_addr = INADDR_ANY;
+    server.sin_port = htons(8080);
 
-    // 2. Bind si Listen
-    if (bind(webSocket, (struct sockaddr*)&server, sizeof(server)) == SOCKET_ERROR) {
-        cout << "[Web] Bind failed via port 8080. Maybe used?" << endl;
-        return;
-    }
-    listen(webSocket, 3); // Asculta conexiuni
-
-    cout << "[Web] Dashboard Server running on Port 8080..." << endl;
+    if (bind(webSocket, (struct sockaddr*)&server, sizeof(server)) == SOCKET_ERROR) return;
+    listen(webSocket, 5); // Coada de asteptare un pic mai mare
 
     int c = sizeof(struct sockaddr_in);
 
-    // Bucla infinită a serverului web
     while (true) {
         SOCKET clientSocket = accept(webSocket, (struct sockaddr*)&client, &c);
-        if (clientSocket == INVALID_SOCKET) {
+        if (clientSocket == INVALID_SOCKET) continue;
+
+        // [NOU] Citim ce cere browserul (Request-ul)
+        char request[4096];
+        int bytesRead = recv(clientSocket, request, 4096, 0);
+        if (bytesRead <= 0) {
+            closesocket(clientSocket);
             continue;
         }
 
-        // 3. Construim pagina HTML
-        // <meta http-equiv="refresh" content="1"> face pagina sa isi dea refresh singura la fiecare secunda
-        string html = "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n";
-        html += "<html><head><meta http-equiv='refresh' content='1'>";
-        html += "<style>body{font-family: Arial; background-color: #111; color: white; text-align: center; padding-top: 50px;}";
-        html += ".speed{font-size: 80px; color: #00ff00; font-weight: bold;}";
-        html += ".label{font-size: 20px; color: #aaa;}</style></head>";
-        html += "<body>";
-        html += "<div class='label'>VITEZA ACTUALA</div>";
-        html += "<div class='speed'>" + to_string(globalSpeed) + " km/h</div>";
-        html += "<br><div class='label'>TURATII MOTOR</div>";
-        html += "<h3>" + to_string(globalRPM) + " RPM</h3>";
-        html += "</body></html>";
+        // Convertim request-ul in string ca sa cautam usor in el
+        string reqStr(request);
 
-        // 4. Trimitem raspunsul la telefon
-        send(clientSocket, html.c_str(), html.length(), 0);
+        // --- CAZUL 1: Browserul cere DATELE (API) ---
+        // JavaScript-ul va cere asta de 20 de ori pe secunda
+        if (reqStr.find("GET /data") != string::npos) {
 
-        // 5. Inchidem conexiunea (HTTP e stateless)
+            // Construim un raspuns JSON (JavaScript Object Notation)
+            // Exemplu: { "speed": 120, "rpm": 4500 }
+            string jsonBody = "{ \"speed\": " + to_string(globalSpeed) + ", \"rpm\": " + to_string(globalRPM) + " }";
+
+            string response = "HTTP/1.1 200 OK\r\n"
+                "Content-Type: application/json\r\n"
+                "Access-Control-Allow-Origin: *\r\n" // Permite oricui sa citeasca
+                "Content-Length: " + to_string(jsonBody.length()) + "\r\n"
+                "Connection: close\r\n\r\n" + jsonBody;
+
+            send(clientSocket, response.c_str(), response.length(), 0);
+        }
+
+        // --- CAZUL 2: Browserul cere PAGINA (HTML) ---
+        // Asta se intampla o singura data, cand deschizi site-ul
+        else {
+            string html = "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nConnection: close\r\n\r\n";
+            html += "<html><head><title>Forza Dashboard</title>";
+            html += "<meta name='viewport' content='width=device-width, initial-scale=1'>"; // Pt mobil
+            html += "<style>";
+            html += "body { background-color: #0f0f0f; color: #fff; font-family: 'Segoe UI', sans-serif; text-align: center; margin-top: 50px; }";
+            html += ".speed-box { font-size: 120px; font-weight: 800; color: #00ffcc; text-shadow: 0 0 20px #00ffcc; }";
+            html += ".rpm-box { font-size: 40px; color: #ff3333; margin-top: 20px; }";
+            html += ".label { font-size: 14px; color: #666; letter-spacing: 2px; text-transform: uppercase; }";
+            html += "</style>";
+            html += "</head><body>";
+
+            html += "<div class='label'>VITEZA (KM/H)</div>";
+            html += "<div class='speed-box' id='speedDisplay'>0</div>"; // ID pentru JavaScript
+            html += "<div class='label'>MOTOR (RPM)</div>";
+            html += "<div class='rpm-box' id='rpmDisplay'>0</div>";     // ID pentru JavaScript
+
+            // --- JAVASCRIPT-UL CARE FACE MAGIA ---
+            html += "<script>";
+            html += "setInterval(function() {"; // Ruleaza functia asta la infinit
+            html += "   fetch('/data')";       // 1. Cere datele de la serverul nostru C++
+            html += "   .then(response => response.json())"; // 2. Converteste raspunsul in JSON
+            html += "   .then(data => {";
+            html += "       document.getElementById('speedDisplay').innerText = data.speed;"; // 3. Actualizeaza Viteza
+            html += "       document.getElementById('rpmDisplay').innerText = data.rpm;";     // 4. Actualizeaza RPM
+            html += "   }).catch(err => console.log(err));";
+            html += "}, 50);"; // 50ms = 20 de ori pe secunda (SUPER FLUID)
+            html += "</script>";
+
+            html += "</body></html>";
+
+            send(clientSocket, html.c_str(), html.length(), 0);
+        }
+
         closesocket(clientSocket);
     }
 }
