@@ -3,5 +3,5 @@
     <Platform Name="x64" />
     <Platform Name="x86" />
   </Configurations>
-  <Project Path="FH5_Speedometer/FH5_Speedometer.vcxproj" />
+  <Project Path="FH5_Speedometer/FH5_Speedometer.vcxproj" Id="0beb3b4c-71ff-4707-b44e-ca13917c8c51" />
 </Solution>

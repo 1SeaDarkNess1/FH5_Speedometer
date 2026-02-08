@@ -2,6 +2,7 @@
 #include "ForzaData.h"
 #include <winsock2.h> // Biblioteca pentru rețelistică pe Windows
 #include <vector>
+#include <fstream>
 
 // Linkam biblioteca ws2_32.lib (necesar pentru Visual Studio/Linker)
 #pragma comment(lib,"ws2_32.lib") 
@@ -56,6 +57,10 @@ int main()
     cout << "--- Waiting for data Forza Horizon 5 on port 5300 ---" << endl;
     cout << "                    Start driving!" << endl;
 
+    ofstream logFile;
+    logFile.open("ForzaLog.csv");
+    logFile << "Timestamp,Speed_KPM,RPM,Gear,Suspension_FL,Is_Cheating\n";
+
     char buffer[1024]; // Aici vom stoca datele brute primite
     int slen = sizeof(client);
 
@@ -66,9 +71,6 @@ int main()
     bool isFirstPacket = true; // [FIX] Ignoram primul pachet ca sa nu dea eroare
 
     while (true) {
-        // [FIX 1] AM SCOS SLEEP-ul. 
-        // recvfrom este "blocking", deci programul oricum asteapta aici pana vine pachetul.
-        // Nu consuma CPU cand asteapta.
 
         int recv_len;
         if ((recv_len = recvfrom(server_socket, buffer, 1024, 0, (struct sockaddr*)&client, &slen)) == SOCKET_ERROR) {
@@ -83,18 +85,18 @@ int main()
 
         string clasa = GetCarClass(data->CarPerformanceIndex);
 
-        // --- ANTI-CHEAT LOGIC V2 ---
-        if (!isFirstPacket) { // Facem verificarea doar DACA NU e primul pachet
+        string cheatStatus = "NO";
+
+        if (!isFirstPacket) {
             float deltaSpeed = speedKPH - lastSpeed;
 
-            // Verificam daca acceleratia e fizic imposibila
-            // (Ex: creste cu 20km/h intr-o fracțiune de secundă, adica 1 frame)
-            if (speedKPH > 5 && deltaSpeed > 20.0f) {
-                cout << "\n [!!!] CHEAT DETECTED: Jumped " << deltaSpeed << " km/h in 1 frame! \n";
+            // Verificam daca acceleratia e suspecta
+            if (speedKPH > 10 && deltaSpeed > 30.0f) {
+                cheatStatus = "YES"; // [FIX] Aici doar schimbăm valoarea, nu o mai declarăm
+                cout << "\n [!!!] CHEAT DETECTED: Jumped " << deltaSpeed << " km/h! \n";
             }
         }
         else {
-            // Daca e primul pachet, doar setam flag-ul pe false si mergem mai departe
             isFirstPacket = false;
         }
 
@@ -112,6 +114,13 @@ int main()
             else bar += " ";
         }
         bar += "]";
+
+        logFile << data->TimestampMS << ","
+            << speedKPH << ","
+            << data->CurrentEngineRpm << ","
+            << (int)data->CarClass << "," // Sau poti pune clasa (string)
+            << data->NormalizedSuspensionTravelFrontLeft << ","
+            << cheatStatus << "\n";
 
         printf("Clasa: %s | %s %3.0f km/h | RPM: %8.0f \r",
             clasa.c_str(),
