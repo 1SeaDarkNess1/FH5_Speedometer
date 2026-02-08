@@ -1,4 +1,5 @@
 ﻿#include <iostream>
+#include "ForzaData.h"
 #include <winsock2.h> // Biblioteca pentru rețelistică pe Windows
 #include <vector>
 
@@ -9,66 +10,7 @@ using namespace std;
 
 // Aceasta este structura EXACTĂ a datelor trimise de Forza Horizon (Formatul "Sled")
 // Aici vezi puterea C++: mapam memoria direct pe variabile.
-struct ForzaData {
-    long IsRaceOn;      // = 1 cand esti in cursa, 0 in meniu
-    unsigned long TimestampMS;
-    float EngineMaxRpm;
-    float EngineIdleRpm;
-    float CurrentEngineRpm;
-    float AccelerationX;
-    float AccelerationY;
-    float AccelerationZ;
-    float VelocityX;
-    float VelocityY;
-    float VelocityZ;
-    float AngularVelocityX;
-    float AngularVelocityY;
-    float AngularVelocityZ;
-    float Yaw;
-    float Pitch;
-    float Roll;
-    float NormalizedSuspensionTravelFrontLeft;
-    float NormalizedSuspensionTravelFrontRight;
-    float NormalizedSuspensionTravelRearLeft;
-    float NormalizedSuspensionTravelRearRight;
-    float TireSlipRatioFrontLeft;
-    float TireSlipRatioFrontRight;
-    float TireSlipRatioRearLeft;
-    float TireSlipRatioRearRight;
-    float WheelRotationSpeedFrontLeft;
-    float WheelRotationSpeedFrontRight;
-    float WheelRotationSpeedRearLeft;
-    float WheelRotationSpeedRearRight;
-    long WheelOnRumbleStripFrontLeft;
-    long WheelOnRumbleStripFrontRight;
-    long WheelOnRumbleStripRearLeft;
-    long WheelOnRumbleStripRearRight;
-    float WheelInPuddleDepthFrontLeft;
-    float WheelInPuddleDepthFrontRight;
-    float WheelInPuddleDepthRearLeft;
-    float WheelInPuddleDepthRearRight;
-    float SurfaceRumbleFrontLeft;
-    float SurfaceRumbleFrontRight;
-    float SurfaceRumbleRearLeft;
-    float SurfaceRumbleRearRight;
-    float TireSlipAngleFrontLeft;
-    float TireSlipAngleFrontRight;
-    float TireSlipAngleRearLeft;
-    float TireSlipAngleRearRight;
-    float TireCombinedSlipFrontLeft;
-    float TireCombinedSlipFrontRight;
-    float TireCombinedSlipRearLeft;
-    float TireCombinedSlipRearRight;
-    float SuspensionTravelMetersFrontLeft;
-    float SuspensionTravelMetersFrontRight;
-    float SuspensionTravelMetersRearLeft;
-    float SuspensionTravelMetersRearRight;
-    long CarOrdinal;
-    long CarClass;
-    long CarPerformanceIndex;
-    long DrivetrainType;
-    long NumCylinders;
-};
+
 
 string GetCarClass(long pi) {
     if (pi <= 500) return "D";
@@ -111,46 +53,59 @@ int main()
         return 1;
     }
 
-    cout << "--- Astept date de la Forza Horizon pe portul 5300 ---" << endl;
-    cout << "Intra in joc si condu masina!" << endl;
+    cout << "--- Waiting for data Forza Horizon 5 on port 5300 ---" << endl;
+    cout << "                    Start driving!" << endl;
 
     char buffer[1024]; // Aici vom stoca datele brute primite
     int slen = sizeof(client);
 
-    while (true) 
-    {
-        // 5. Primirea datelor (Blocheaza executia pana vin date)
+    // [NOU] Variabila pentru Anti-Cheat
+    float lastSpeed = 0.0f;
+
+    // Variabile pentru logica noua
+    bool isFirstPacket = true; // [FIX] Ignoram primul pachet ca sa nu dea eroare
+
+    while (true) {
+        // [FIX 1] AM SCOS SLEEP-ul. 
+        // recvfrom este "blocking", deci programul oricum asteapta aici pana vine pachetul.
+        // Nu consuma CPU cand asteapta.
+
         int recv_len;
-        if ((recv_len = recvfrom(server_socket, buffer, 1024, 0, (struct sockaddr*)&client, &slen)) == SOCKET_ERROR)
-        {
-            cout << "recvfrom failed: " << WSAGetLastError() << endl;
-            exit(1);
+        if ((recv_len = recvfrom(server_socket, buffer, 1024, 0, (struct sockaddr*)&client, &slen)) == SOCKET_ERROR) {
+            continue;
         }
 
-        // 6. MAGIA POINTERILOR (Casting)
-        // Transformam buffer-ul de char (bytes) direct in structura noastra
-        // Asta e "unsafe" dar extrem de rapid. Exact ce se cere la ACS/Sisteme de Operare.
         ForzaData* data = (ForzaData*)buffer;
 
-        // Calculam viteza (Viteza e vector 3D, facem magnitudine: sqrt(x^2 + y^2 + z^2))
-        // Forza da viteza in metri pe secunda (m/s). Inmultim cu 3.6 pentru km/h.
+        // Calcule viteza
         float speedMPS = sqrt(pow(data->VelocityX, 2) + pow(data->VelocityY, 2) + pow(data->VelocityZ, 2));
         float speedKPH = speedMPS * 3.6f;
 
-        // Afisam datele
-        // Folosim '\r' (carriage return) ca sa suprascriem linia, sa para animatie fluida
         string clasa = GetCarClass(data->CarPerformanceIndex);
 
-       /* printf("Clasa: %s (%ld) | RPM: %8.0f | Viteza: %4.0f km/h \r",
-            clasa.c_str(),
-            data->CarPerformanceIndex,
-            data->CurrentEngineRpm,
-            speedKPH);*/
-        // Calculam procentul de RPM (Cat de turata e masina, de la 0.0 la 1.0)
-        float rpmPercent = data->CurrentEngineRpm / data->EngineMaxRpm;
-        int barWidth = 70; // Lungimea barei grafice
-        int pos = barWidth * rpmPercent;
+        // --- ANTI-CHEAT LOGIC V2 ---
+        if (!isFirstPacket) { // Facem verificarea doar DACA NU e primul pachet
+            float deltaSpeed = speedKPH - lastSpeed;
 
+            // Verificam daca acceleratia e fizic imposibila
+            // (Ex: creste cu 20km/h intr-o fracțiune de secundă, adica 1 frame)
+            if (speedKPH > 5 && deltaSpeed > 20.0f) {
+                cout << "\n [!!!] CHEAT DETECTED: Jumped " << deltaSpeed << " km/h in 1 frame! \n";
+            }
+        }
+        else {
+            // Daca e primul pachet, doar setam flag-ul pe false si mergem mai departe
+            isFirstPacket = false;
+        }
+
+        lastSpeed = speedKPH;
+
+        // --- GRAFICA ---
+        float rpmPercent = data->CurrentEngineRpm / data->EngineMaxRpm;
+        if (rpmPercent > 1.0f) rpmPercent = 1.0f;
+
+        int barWidth = 20;
+        int pos = barWidth * rpmPercent;
         string bar = "[";
         for (int i = 0; i < barWidth; ++i) {
             if (i < pos) bar += "=";
@@ -158,9 +113,11 @@ int main()
         }
         bar += "]";
 
-        // Acum afisam totul frumos
-        // \r ne duce la inceputul randului, cout flush forteaza afisarea
-        cout << "Clasa: " << clasa << " | " << bar << " " << (int)speedKPH << " km/h      \r" << flush;
+        printf("Clasa: %s | %s %3.0f km/h | RPM: %8.0f \r",
+            clasa.c_str(),
+            bar.c_str(),
+            speedKPH,
+            data->CurrentEngineRpm);
     }
 
     closesocket(server_socket);

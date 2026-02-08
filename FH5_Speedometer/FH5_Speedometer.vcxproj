@@ -129,6 +129,9 @@
   <ItemGroup>
     <ClCompile Include="FH5_Speedometer.cpp" />
   </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="ForzaData.h" />
+  </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>
