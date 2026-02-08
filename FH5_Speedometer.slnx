@@ -1,0 +1,7 @@
+<Solution>
+  <Configurations>
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
+  <Project Path="FH5_Speedometer/FH5_Speedometer.vcxproj" />
+</Solution>
