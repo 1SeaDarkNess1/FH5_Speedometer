@@ -1,38 +1,70 @@
 ﻿#include <iostream>
-#include "ForzaData.h"
-#include <winsock2.h> // Biblioteca pentru rețelistică pe Windows
 #include <vector>
+#include <cmath>
 #include <fstream>
+#include <string>
 #include <thread>
 #include <atomic>
-#include <string>
-std::atomic<int> globalSpeed(0);
-std::atomic<int> globalRPM(0);
-std::atomic<int> globalGear(0);
+#include <iomanip> // Pentru formatare frumoasa
 
-// Linkam biblioteca ws2_32.lib (necesar pentru Visual Studio/Linker)
-#pragma comment(lib,"ws2_32.lib") 
+// Includem Winsock si Windows API
+#include <winsock2.h>
+#include <windows.h>
+#pragma comment(lib,"ws2_32.lib")
+
+#include "ForzaData.h"
 
 using namespace std;
 
-// Aceasta este structura EXACTĂ a datelor trimise de Forza Horizon (Formatul "Sled")
-// Aici vezi puterea C++: mapam memoria direct pe variabile.
+// --- GLOBALE ---
+atomic<int> globalSpeed(0);
+atomic<int> globalRPM(0);
 
-
-string GetCarClass(long pi) {
-    if (pi <= 500) return "D";
-    if (pi <= 600) return "C";
-    if (pi <= 700) return "B";
-    if (pi <= 800) return "A";
-    if (pi <= 900) return "S1";
-    if (pi <= 998) return "S2";
-    return "X"; // 999+
+// --- UTILITARE PENTRU CONSOLA (GRAFICA) ---
+void HideCursor() {
+    HANDLE consoleHandle = GetStdHandle(STD_OUTPUT_HANDLE);
+    CONSOLE_CURSOR_INFO info;
+    info.dwSize = 100;
+    info.bVisible = FALSE; // Ascunde cursorul care palpaie
+    SetConsoleCursorInfo(consoleHandle, &info);
 }
 
+void GoToXY(int x, int y) {
+    COORD c;
+    c.X = x;
+    c.Y = y;
+    SetConsoleCursorPosition(GetStdHandle(STD_OUTPUT_HANDLE), c);
+}
+
+// Culori: 7=Alb, 10=Verde, 12=Rosu, 14=Galben, 11=Cyan
+void SetColor(int color) {
+    SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE), color);
+}
+
+void DrawBox(int x, int y, int width, int height) {
+    SetColor(8); // Gri inchis pentru margini
+    // Colturile
+    GoToXY(x, y); cout << "+";
+    GoToXY(x + width, y); cout << "+";
+    GoToXY(x, y + height); cout << "+";
+    GoToXY(x + width, y + height); cout << "+";
+
+    // Liniile orizontale
+    for (int i = 1; i < width; i++) {
+        GoToXY(x + i, y); cout << "-";
+        GoToXY(x + i, y + height); cout << "-";
+    }
+    // Liniile verticale
+    for (int i = 1; i < height; i++) {
+        GoToXY(x, y + i); cout << "|";
+        GoToXY(x + width, y + i); cout << "|";
+    }
+}
+
+// --- SERVER WEB (SIMPLIFICAT PENTRU VITEZA) ---
 void StartWebServer() {
     SOCKET webSocket;
     struct sockaddr_in server, client;
-
     webSocket = socket(AF_INET, SOCK_STREAM, 0);
     if (webSocket == INVALID_SOCKET) return;
 
@@ -41,7 +73,7 @@ void StartWebServer() {
     server.sin_port = htons(8080);
 
     if (bind(webSocket, (struct sockaddr*)&server, sizeof(server)) == SOCKET_ERROR) return;
-    listen(webSocket, 5); // Coada de asteptare un pic mai mare
+    listen(webSocket, 5);
 
     int c = sizeof(struct sockaddr_in);
 
@@ -49,187 +81,139 @@ void StartWebServer() {
         SOCKET clientSocket = accept(webSocket, (struct sockaddr*)&client, &c);
         if (clientSocket == INVALID_SOCKET) continue;
 
-        // [NOU] Citim ce cere browserul (Request-ul)
         char request[4096];
         int bytesRead = recv(clientSocket, request, 4096, 0);
-        if (bytesRead <= 0) {
-            closesocket(clientSocket);
-            continue;
-        }
-
-        // Convertim request-ul in string ca sa cautam usor in el
+        if (bytesRead <= 0) { closesocket(clientSocket); continue; }
         string reqStr(request);
 
-        // --- CAZUL 1: Browserul cere DATELE (API) ---
-        // JavaScript-ul va cere asta de 20 de ori pe secunda
+        // API PENTRU DASHBOARD
         if (reqStr.find("GET /data") != string::npos) {
-
-            // Construim un raspuns JSON (JavaScript Object Notation)
-            // Exemplu: { "speed": 120, "rpm": 4500 }
             string jsonBody = "{ \"speed\": " + to_string(globalSpeed) + ", \"rpm\": " + to_string(globalRPM) + " }";
-
-            string response = "HTTP/1.1 200 OK\r\n"
-                "Content-Type: application/json\r\n"
-                "Access-Control-Allow-Origin: *\r\n" // Permite oricui sa citeasca
-                "Content-Length: " + to_string(jsonBody.length()) + "\r\n"
-                "Connection: close\r\n\r\n" + jsonBody;
-
+            string response = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\nConnection: close\r\n\r\n" + jsonBody;
             send(clientSocket, response.c_str(), response.length(), 0);
         }
-
-        // --- CAZUL 2: Browserul cere PAGINA (HTML) ---
-        // Asta se intampla o singura data, cand deschizi site-ul
+        // HTML MODERN
         else {
             string html = "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nConnection: close\r\n\r\n";
-            html += "<html><head><title>Forza Dashboard</title>";
-            html += "<meta name='viewport' content='width=device-width, initial-scale=1'>"; // Pt mobil
+            html += "<html><head><meta name='viewport' content='width=device-width, initial-scale=1'>";
             html += "<style>";
-            html += "body { background-color: #0f0f0f; color: #fff; font-family: 'Segoe UI', sans-serif; text-align: center; margin-top: 50px; }";
-            html += ".speed-box { font-size: 120px; font-weight: 800; color: #00ffcc; text-shadow: 0 0 20px #00ffcc; }";
-            html += ".rpm-box { font-size: 40px; color: #ff3333; margin-top: 20px; }";
-            html += ".label { font-size: 14px; color: #666; letter-spacing: 2px; text-transform: uppercase; }";
-            html += "</style>";
-            html += "</head><body>";
+            html += "body { background: #121212; color: white; font-family: 'Arial', sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; }";
+            html += ".card { background: #1e1e1e; padding: 20px; border-radius: 15px; width: 80%; max-width: 400px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); text-align: center; }";
+            html += ".value { font-size: 80px; font-weight: bold; color: #00ffcc; }";
+            html += ".label { color: #888; letter-spacing: 2px; font-size: 14px; margin-bottom: 5px; }";
+            html += ".rpm-bar-bg { width: 100%; height: 10px; background: #333; border-radius: 5px; margin-top: 20px; overflow: hidden; }";
+            html += ".rpm-bar-fill { height: 100%; background: linear-gradient(90deg, #00ffcc, #ffff00, #ff0000); width: 0%; transition: width 0.1s linear; }";
+            html += "</style></head><body>";
 
-            html += "<div class='label'>VITEZA (KM/H)</div>";
-            html += "<div class='speed-box' id='speedDisplay'>0</div>"; // ID pentru JavaScript
-            html += "<div class='label'>MOTOR (RPM)</div>";
-            html += "<div class='rpm-box' id='rpmDisplay'>0</div>";     // ID pentru JavaScript
+            html += "<div class='card'>";
+            html += "<div class='label'>VITEZA</div>";
+            html += "<div class='value' id='spd'>0</div>";
+            html += "<div class='label'>KM/H</div>";
+            html += "<div class='rpm-bar-bg'><div class='rpm-bar-fill' id='rpm'></div></div>";
+            html += "<div class='label' style='margin-top: 5px;'>RPM MONITOR</div>";
+            html += "</div>";
 
-            // --- JAVASCRIPT-UL CARE FACE MAGIA ---
             html += "<script>";
-            html += "setInterval(function() {"; // Ruleaza functia asta la infinit
-            html += "   fetch('/data')";       // 1. Cere datele de la serverul nostru C++
-            html += "   .then(response => response.json())"; // 2. Converteste raspunsul in JSON
-            html += "   .then(data => {";
-            html += "       document.getElementById('speedDisplay').innerText = data.speed;"; // 3. Actualizeaza Viteza
-            html += "       document.getElementById('rpmDisplay').innerText = data.rpm;";     // 4. Actualizeaza RPM
-            html += "   }).catch(err => console.log(err));";
-            html += "}, 50);"; // 50ms = 20 de ori pe secunda (SUPER FLUID)
-            html += "</script>";
-
-            html += "</body></html>";
+            html += "setInterval(() => { fetch('/data').then(r=>r.json()).then(d=>{";
+            html += "  document.getElementById('spd').innerText = d.speed;";
+            html += "  document.getElementById('rpm').style.width = (d.rpm / 9000 * 100) + '%';"; // Presupunem max 9000 RPM
+            html += "})}, 50);"; // 20 FPS
+            html += "</script></body></html>";
 
             send(clientSocket, html.c_str(), html.length(), 0);
         }
-
         closesocket(clientSocket);
     }
 }
 
-int main()
-{
-    // 1. Initializare Winsock (boilerplate obligatoriu pe Windows)
+// --- MAIN ---
+int main() {
+    // 1. Setup
     WSADATA wsa;
-    if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0) 
-    {
-        cout << "Eroare la initializare Winsock: " << WSAGetLastError() << endl;
-        return 1;
-    }
+    WSAStartup(MAKEWORD(2, 2), &wsa);
 
-    std::thread webThread(StartWebServer);
-    webThread.detach(); 
-
-    // 2. Creare Socket UDP (Internet Protocol, Datagrama, UDP)
-    SOCKET server_socket;
-    if ((server_socket = socket(AF_INET, SOCK_DGRAM, 0)) == INVALID_SOCKET) 
-    {
-        cout << "Nu s-a putut crea socketul: " << WSAGetLastError() << endl;
-        return 1;
-    }
-
-    // 3. Pregatim structura de adresa (unde ascultam?)
+    SOCKET server_socket = socket(AF_INET, SOCK_DGRAM, 0);
     struct sockaddr_in server, client;
     server.sin_family = AF_INET;
-    server.sin_addr.s_addr = INADDR_ANY; // Asculta pe orice interfata de retea
-    server.sin_port = htons(5300);       // Portul setat in joc (Host To Network Short)
+    server.sin_addr.s_addr = INADDR_ANY;
+    server.sin_port = htons(5300);
+    bind(server_socket, (struct sockaddr*)&server, sizeof(server));
 
-    // 4. Bind (Legam socketul de port)
-    if (bind(server_socket, (struct sockaddr*)&server, sizeof(server)) == SOCKET_ERROR) 
-    {
-        cout << "Bind failed: " << WSAGetLastError() << endl;
-        return 1;
-    }
+    // Pornim thread-ul web
+    thread webThread(StartWebServer);
+    webThread.detach();
 
-    cout << "--- Waiting for data Forza Horizon 5 on port 5300 ---" << endl;
-    cout << "                    Start driving!" << endl;
+    // 2. Initializare Grafica Consola
+    system("cls"); // Curatam o singura data la inceput
+    HideCursor();
 
+    // Desenam interfata STATICA (Chenarele)
+    SetColor(11); // Cyan
+    GoToXY(2, 1); cout << "FORZA HORIZON 5 TELEMETRY SYSTEM v2.0";
+    GoToXY(2, 2); cout << "=======================================";
+
+    // Chenar Viteza
+    DrawBox(2, 4, 20, 4);
+    GoToXY(4, 5); SetColor(7); cout << "VITEZA (KM/H)";
+
+    // Chenar RPM
+    DrawBox(25, 4, 30, 4);
+    GoToXY(27, 5); SetColor(7); cout << "RPM MOTOR";
+
+    // Chenar Log
+    DrawBox(2, 10, 53, 3);
+    GoToXY(4, 11); cout << "STATUS: ";
+    SetColor(10); cout << "CONECTAT SI INREGISTREAZA...";
+
+    // Fisier CSV
     ofstream logFile;
-    logFile.open("ForzaLog.csv");
-    logFile << "Timestamp,Speed_KPM,RPM,Gear,Suspension_FL,Is_Cheating\n";
+    logFile.open("ForzaLog_V2.csv");
+    logFile << "Timestamp,Speed,RPM,Gear\n";
 
-    char buffer[1024]; // Aici vom stoca datele brute primite
+    char buffer[1024];
     int slen = sizeof(client);
 
-    // [NOU] Variabila pentru Anti-Cheat
-    float lastSpeed = 0.0f;
-
-    // Variabile pentru logica noua
-    bool isFirstPacket = true; // [FIX] Ignoram primul pachet ca sa nu dea eroare
-
+    // 3. Loop Principal
     while (true) {
+        int recv_len = recvfrom(server_socket, buffer, 1024, 0, (struct sockaddr*)&client, &slen);
+        if (recv_len > 0) {
+            ForzaData* data = (ForzaData*)buffer;
 
-        int recv_len;
-        if ((recv_len = recvfrom(server_socket, buffer, 1024, 0, (struct sockaddr*)&client, &slen)) == SOCKET_ERROR) {
-            continue;
-        }
+            // Calcule
+            float speedMPS = sqrt(pow(data->VelocityX, 2) + pow(data->VelocityY, 2) + pow(data->VelocityZ, 2));
+            float speedKPH = speedMPS * 3.6f;
 
-        ForzaData* data = (ForzaData*)buffer;
+            // Update Globale
+            globalSpeed = (int)speedKPH;
+            globalRPM = (int)data->CurrentEngineRpm;
 
-        // Calcule viteza
-        float speedMPS = sqrt(pow(data->VelocityX, 2) + pow(data->VelocityY, 2) + pow(data->VelocityZ, 2));
-        float speedKPH = speedMPS * 3.6f;
+            // --- DESENARE DINAMICA (Doar valorile) ---
 
-        globalSpeed = (int)speedKPH;
-        globalRPM = (int)data->CurrentEngineRpm; 
+            // 1. Afisare Viteza (Centrat in casuta)
+            GoToXY(6, 7);
+            SetColor(14); // Galben
+            if (speedKPH > 200) SetColor(12); // Rosu daca e viteza mare
+            cout << setw(3) << (int)speedKPH; // setw aliniaza frumos
 
-        string clasa = GetCarClass(data->CarPerformanceIndex);
+            // 2. Afisare RPM (Bara progresiva in consola)
+            GoToXY(27, 7);
+            SetColor(8); cout << "[                    ]"; // Stergem bara veche (background)
+            GoToXY(28, 7);
 
-        string cheatStatus = "NO";
+            // Calculam cati "patratele" sa desenam
+            float rpmPercent = data->CurrentEngineRpm / data->EngineMaxRpm;
+            int blocks = (int)(rpmPercent * 20.0f); // Bara are 20 caractere lungime
+            if (blocks > 20) blocks = 20;
 
-        if (!isFirstPacket) {
-            float deltaSpeed = speedKPH - lastSpeed;
-
-            // Verificam daca acceleratia e suspecta
-            if (speedKPH > 10 && deltaSpeed > 30.0f) {
-                cheatStatus = "YES"; // [FIX] Aici doar schimbăm valoarea, nu o mai declarăm
-                cout << "\n [!!!] CHEAT DETECTED: Jumped " << deltaSpeed << " km/h! \n";
+            // Desenam bara colorata
+            for (int i = 0; i < blocks; i++) {
+                if (i < 15) SetColor(10); // Verde
+                else SetColor(12);       // Rosu pe zona rosie
+                cout << char(219);       // Caracterul 'block' (plin)
             }
+
+            // CSV Log
+            logFile << data->TimestampMS << "," << speedKPH << "," << data->CurrentEngineRpm << "\n";
         }
-        else {
-            isFirstPacket = false;
-        }
-
-        lastSpeed = speedKPH;
-
-        // --- GRAFICA ---
-        float rpmPercent = data->CurrentEngineRpm / data->EngineMaxRpm;
-        if (rpmPercent > 1.0f) rpmPercent = 1.0f;
-
-        int barWidth = 20;
-        int pos = barWidth * rpmPercent;
-        string bar = "[";
-        for (int i = 0; i < barWidth; ++i) {
-            if (i < pos) bar += "=";
-            else bar += " ";
-        }
-        bar += "]";
-
-        logFile << data->TimestampMS << ","
-            << speedKPH << ","
-            << data->CurrentEngineRpm << ","
-            << (int)data->CarClass << "," // Sau poti pune clasa (string)
-            << data->NormalizedSuspensionTravelFrontLeft << ","
-            << cheatStatus << "\n";
-
-        printf("Clasa: %s | %s %3.0f km/h | RPM: %8.0f \r",
-            clasa.c_str(),
-            bar.c_str(),
-            speedKPH,
-            data->CurrentEngineRpm);
     }
-
-    closesocket(server_socket);
-    WSACleanup();
-    return 0;
 }
