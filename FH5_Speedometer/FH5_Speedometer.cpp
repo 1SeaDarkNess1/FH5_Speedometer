@@ -91,12 +91,8 @@ void StartWebServer() {
             string html = "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nConnection: close\r\n\r\n";
             html += "<html><head>";
             html += "<meta name='viewport' content='width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0'>";
-
             html += "<meta name='apple-mobile-web-app-capable' content='yes'>";
-            html += "<meta name='apple-mobile-web-app-status-bar-style' content='black-translucent'>";
-            html += "<meta name='mobile-web-app-capable' content='yes'>";
             html += "<meta name='theme-color' content='#000000'>";
-
             html += "<link href='https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&display=swap' rel='stylesheet'>";
 
             html += "<style>";
@@ -104,7 +100,7 @@ void StartWebServer() {
 
             html += ".panel { height: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center; position: relative; }";
             html += ".side { width: 25%; border: 1px solid #1a1a1a; background: radial-gradient(circle, #0a0a0a 0%, #000 100%); }";
-            html += ".center { width: 50%; }";
+            html += ".center { width: 50%; position: relative; }"; // Position relative pt centrare
 
             html += ".g-title { font-size: 12px; color: #555; position: absolute; top: 20px; letter-spacing: 2px; }";
             html += ".radar-circle { width: 140px; height: 140px; border: 2px solid #0ff; border-radius: 50%; position: relative; background: rgba(0, 255, 255, 0.05); box-shadow: 0 0 10px rgba(0,255,255,0.2); overflow: hidden; }";
@@ -120,28 +116,40 @@ void StartWebServer() {
             html += "#t-brk { background: #f00; height: 0%; box-shadow: 0 0 10px #f00; }";
             html += ".bar-label { position: absolute; bottom: -25px; width: 100%; text-align: center; font-size: 10px; color: #555; }";
 
-            html += "svg { position: absolute; transform: rotate(135deg); width: 100%; height: 100%; overflow: visible; }";
+            // --- LAYOUT FIX: COBORAM TOTUL ---
+            // 1. SVG-ul (Inelul) il impingem in jos cu top: 50px
+            html += "svg { position: absolute; top: 50px; transform: rotate(135deg); width: 100%; height: 80%; overflow: visible; }";
             html += "circle { fill: none; stroke-width: 15; stroke-linecap: round; transition: stroke-dashoffset 0.1s linear; }";
             html += ".bg-circle { stroke: #1a1a1a; }";
             html += ".fg-circle { stroke: url(#gradient); stroke-dasharray: 754; stroke-dashoffset: 754; filter: drop-shadow(0 0 5px #0ff); }";
 
-            html += ".data-cluster { text-align: center; z-index: 2; }";
+            // 2. Data Cluster (Textul) il impingem in jos ca sa fie in centrul inelului
+            // Am schimbat translateY de la negativ la pozitiv (40px)
+            html += ".data-cluster { text-align: center; z-index: 2; transform: translateY(40px); }";
+
             html += ".speed-val { font-size: 80px; font-weight: 900; color: #fff; text-shadow: 0 0 15px #0ff; line-height: 0.8; }";
             html += ".unit { font-size: 14px; letter-spacing: 2px; color: #0aa; margin-bottom: 10px; }";
             html += ".gear-val { font-size: 40px; color: #ff0055; font-weight: bold; text-shadow: 0 0 10px #ff0055; margin-top: 5px; }";
 
-            // --- ANIMATIE NUCLEARA ---
-            // Flash violent: Rosu -> Negru, cu bordura alba stralucitoare
-            html += "@keyframes nuke {";
-            html += "  0% { background-color: #000; box-shadow: inset 0 0 0 0 #f00; }";
-            html += "  50% { background-color: #ff0000; box-shadow: inset 0 0 100px 50px #fff; }"; // Rosu aprins + Glow interior alb
-            html += "  100% { background-color: #000; box-shadow: inset 0 0 0 0 #f00; }";
-            html += "}";
+            // Control Panel ramane jos
+            html += ".control-panel { position: absolute; bottom: 15px; width: 100%; text-align: center; z-index: 10; }";
 
-            // Cand shift light e activ, schimbam TOTUL
-            html += ".shifting { animation: nuke 0.08s infinite; }"; // Foarte rapid (12Hz)
+            html += ".btn-row { display: flex; justify-content: center; gap: 10px; }";
+            html += ".lc-btn { background: rgba(0,0,0,0.6); border: 1px solid #0ff; color: #0ff; font-family: 'Orbitron'; padding: 12px 18px; border-radius: 5px; cursor: pointer; font-size: 16px; transition: 0.2s; }";
+            html += ".lc-btn:active { background: #0ff; color: #000; box-shadow: 0 0 15px #0ff; }";
 
-            // Cand e rosu, facem textul si elementele ALBE/NEGRE pentru contrast
+            html += ".timer-display { display: none; font-size: 26px; font-weight: bold; background: rgba(0,0,0,0.9); padding: 15px 30px; border: 1px solid #555; border-radius: 10px; }";
+            html += ".timer-wait { color: #ff0000; border-color: #ff0000; animation: blink 0.5s infinite; }";
+            html += ".timer-ready { color: #ffff00; border-color: #ffff00; animation: blink 1s infinite; }";
+            html += ".timer-run { color: #fff; border-color: #0ff; }";
+            html += ".timer-done { color: #0f0; border-color: #0f0; box-shadow: 0 0 20px #0f0; }";
+
+            html += ".reset-btn { margin-top: 10px; border: 1px solid #f00; color: #f00; display: none; background: transparent; padding: 5px 10px; font-family: 'Orbitron'; cursor: pointer;}";
+
+            html += "@keyframes nuke { 0% { background-color: #000; box-shadow: inset 0 0 0 0 #f00; } 50% { background-color: #ff0000; box-shadow: inset 0 0 100px 50px #fff; } 100% { background-color: #000; box-shadow: inset 0 0 0 0 #f00; } }";
+            html += "@keyframes blink { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }";
+
+            html += ".shifting { animation: nuke 0.08s infinite; }";
             html += ".shifting .speed-val, .shifting .gear-val { color: #fff !important; text-shadow: 0 0 20px #000 !important; }";
             html += ".shifting .unit, .shifting .g-title, .shifting .bar-label { color: #000 !important; font-weight: bold; }";
             html += ".shifting .side { border-color: #fff !important; background: none !important; }";
@@ -149,15 +157,10 @@ void StartWebServer() {
 
             html += "#overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: #000; z-index: 999; display: flex; justify-content: center; align-items: center; flex-direction: column; }";
             html += "#start-btn { padding: 20px 40px; font-family: 'Orbitron'; font-size: 20px; color: #0ff; background: transparent; border: 2px solid #0ff; cursor: pointer; box-shadow: 0 0 20px #0ff; transition: 0.2s; }";
-            html += "#start-btn:active { background: #0ff; color: #000; }";
-            html += ".warning { color: #555; margin-top: 20px; font-size: 12px; }";
 
             html += "</style></head><body id='body'>";
 
-            html += "<div id='overlay'>";
-            html += "  <button id='start-btn' onclick='goFullscreen()'>INITIALIZE DASHBOARD</button>";
-            html += "  <div class='warning'>TAP TO ENGAGE FULLSCREEN MODE</div>";
-            html += "</div>";
+            html += "<div id='overlay'><button id='start-btn' onclick='goFullscreen()'>INITIALIZE DASHBOARD</button></div>";
 
             html += "<div class='panel side'>";
             html += "  <div class='g-title'>G-FORCE</div>";
@@ -165,6 +168,7 @@ void StartWebServer() {
             html += "</div>";
 
             html += "<div class='panel center'>";
+
             html += "  <svg viewBox='0 0 300 300'>";
             html += "    <defs><linearGradient id='gradient' x1='0%' y1='0%' x2='100%' y2='0%'>";
             html += "      <stop offset='0%' style='stop-color:#00ffff;stop-opacity:1' />";
@@ -173,11 +177,23 @@ void StartWebServer() {
             html += "    <circle cx='150' cy='150' r='120' class='bg-circle' stroke-dasharray='565' stroke-dashoffset='0'></circle>";
             html += "    <circle cx='150' cy='150' r='120' class='fg-circle' id='rpm-arc' stroke-dasharray='754' stroke-dashoffset='754'></circle>";
             html += "  </svg>";
+
             html += "  <div class='data-cluster'>";
             html += "    <div class='unit'>KM/H</div>";
             html += "    <div class='speed-val' id='speed'>0</div>";
             html += "    <div class='gear-val' id='gear'>N</div>";
             html += "  </div>";
+
+            html += "  <div class='control-panel'>";
+            html += "    <div id='btn-row' class='btn-row'>";
+            html += "       <button class='lc-btn' onclick='armTest(100)'>0-100</button>";
+            html += "       <button class='lc-btn' onclick='armTest(200)'>0-200</button>";
+            html += "       <button class='lc-btn' onclick='armTest(300)'>0-300</button>";
+            html += "    </div>";
+            html += "    <div id='timer-display' class='timer-display'>READY</div>";
+            html += "    <button id='reset-btn' class='reset-btn' onclick='resetTest()'>RESET SYSTEM</button>";
+            html += "  </div>";
+
             html += "</div>";
 
             html += "<div class='panel side'>";
@@ -193,43 +209,84 @@ void StartWebServer() {
             html += "  var elem = document.documentElement;";
             html += "  if (elem.requestFullscreen) { elem.requestFullscreen(); }";
             html += "  else if (elem.webkitRequestFullscreen) { elem.webkitRequestFullscreen(); }";
-            html += "  else if (elem.msRequestFullscreen) { elem.msRequestFullscreen(); }";
             html += "  document.getElementById('overlay').style.display = 'none';";
-            html += "  if ('wakeLock' in navigator) {";
-            html += "     navigator.wakeLock.request('screen').catch((err) => { console.log(err); });";
-            html += "  }";
+            html += "  if ('wakeLock' in navigator) navigator.wakeLock.request('screen').catch((e)=>{});";
             html += "}";
 
-            html += "const circumference = 754;";
-            html += "const maxArc = 754 * 0.75;";
+            html += "const circumference = 754; const maxArc = 754 * 0.75;";
+            html += "let testState = 0;";
+            html += "let targetSpeed = 100;";
+            html += "let startTime = 0;";
+
+            html += "function armTest(spd) {";
+            html += "   targetSpeed = spd;";
+            html += "   testState = 0.5;";
+            html += "   document.getElementById('btn-row').style.display = 'none';";
+            html += "   let tmr = document.getElementById('timer-display');";
+            html += "   tmr.style.display = 'inline-block';";
+            html += "   tmr.className = 'timer-display timer-wait';";
+            html += "   tmr.innerText = 'STOP CAR!';";
+            html += "}";
+
+            html += "function resetTest() {";
+            html += "   testState = 0;";
+            html += "   document.getElementById('btn-row').style.display = 'flex';";
+            html += "   document.getElementById('timer-display').style.display = 'none';";
+            html += "   document.getElementById('reset-btn').style.display = 'none';";
+            html += "}";
+
             html += "setInterval(() => { fetch('/data').then(r=>r.json()).then(d=>{";
 
-            html += "  document.getElementById('speed').innerText = d.speed;";
+            html += "  let speed = d.speed;";
+            html += "  document.getElementById('speed').innerText = speed;";
             html += "  let g = d.gear; let t = g;";
             html += "  if(g==0) t='R'; else if(g==11) t='N';";
             html += "  document.getElementById('gear').innerText = t;";
-
-            html += "  let rpmPct = 0;";
-            html += "  if(d.maxRpm > 0) rpmPct = d.rpm / d.maxRpm;";
+            html += "  let rpmPct = d.maxRpm > 0 ? d.rpm / d.maxRpm : 0;";
             html += "  if(rpmPct > 1) rpmPct = 1;";
-            html += "  let offset = circumference - (rpmPct * maxArc);";
-            html += "  document.getElementById('rpm-arc').style.strokeDashoffset = offset;";
-
+            html += "  document.getElementById('rpm-arc').style.strokeDashoffset = circumference - (rpmPct * maxArc);";
             html += "  if(rpmPct > 0.92) document.getElementById('body').classList.add('shifting');";
             html += "  else document.getElementById('body').classList.remove('shifting');";
-
             html += "  document.getElementById('t-acc').style.height = d.throttle + '%';";
             html += "  document.getElementById('t-brk').style.height = d.brake + '%';";
-
-            html += "  let gX = d.gX * 3.0;";
-            html += "  let gZ = d.gZ * 3.0;";
+            html += "  let gX = d.gX * 3.0; let gZ = d.gZ * 3.0;";
             html += "  if(gX > 48) gX = 48; if(gX < -48) gX = -48;";
             html += "  if(gZ > 48) gZ = 48; if(gZ < -48) gZ = -48;";
-            html += "  let leftPos = 50 + gX;";
-            html += "  let topPos = 50 - gZ;";
-            html += "  let dot = document.getElementById('g-dot');";
-            html += "  dot.style.left = leftPos + '%';";
-            html += "  dot.style.top = topPos + '%';";
+            html += "  document.getElementById('g-dot').style.left = (50 + gX) + '%';";
+            html += "  document.getElementById('g-dot').style.top = (50 - gZ) + '%';";
+
+            // LOGIC
+            html += "  let tmr = document.getElementById('timer-display');";
+
+            // STATE 0.5: WAIT FOR STOP
+            html += "  if (testState == 0.5) {";
+            html += "     if (speed < 1) {";
+            html += "        testState = 1;";
+            html += "        tmr.className = 'timer-display timer-ready';";
+            html += "        tmr.innerText = 'ARMED: 0-' + targetSpeed;";
+            html += "     }";
+            html += "  }";
+
+            // STATE 1: ARMED
+            html += "  else if (testState == 1) {";
+            html += "     if (speed >= 2) {";
+            html += "        testState = 2;";
+            html += "        startTime = Date.now();";
+            html += "        tmr.className = 'timer-display timer-run';";
+            html += "     }";
+            html += "  }";
+
+            // STATE 2: RUNNING
+            html += "  else if (testState == 2) {";
+            html += "     let currentT = (Date.now() - startTime) / 1000;";
+            html += "     tmr.innerText = currentT.toFixed(2) + 's';";
+            html += "     if (speed >= targetSpeed) {";
+            html += "        testState = 3;";
+            html += "        tmr.className = 'timer-display timer-done';";
+            html += "        tmr.innerText = '0-' + targetSpeed + ': ' + currentT.toFixed(2) + 's';";
+            html += "        document.getElementById('reset-btn').style.display = 'inline-block';";
+            html += "     }";
+            html += "  }";
 
             html += "})}, 30);";
             html += "</script></body></html>";
