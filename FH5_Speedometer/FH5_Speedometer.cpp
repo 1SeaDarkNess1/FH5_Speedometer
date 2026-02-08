@@ -19,6 +19,10 @@ using namespace std;
 // --- GLOBALE ---
 atomic<int> globalSpeed(0);
 atomic<int> globalRPM(0);
+atomic<int> globalGear(0);      // [NOU] Treapta de viteza
+atomic<int> globalThrottle(0);  // [NOU] Cat la suta apesi acceleratia (0-100)
+atomic<int> globalBrake(0);     // [NOU] Cat la suta apesi frana (0-100)
+atomic<int> globalMaxRPM(0);    // [NOU] Ca sa stim cand sa dam FLASH
 
 // --- UTILITARE PENTRU CONSOLA (GRAFICA) ---
 void HideCursor() {
@@ -65,6 +69,7 @@ void DrawBox(int x, int y, int width, int height) {
 void StartWebServer() {
     SOCKET webSocket;
     struct sockaddr_in server, client;
+
     webSocket = socket(AF_INET, SOCK_STREAM, 0);
     if (webSocket == INVALID_SOCKET) return;
 
@@ -86,38 +91,105 @@ void StartWebServer() {
         if (bytesRead <= 0) { closesocket(clientSocket); continue; }
         string reqStr(request);
 
-        // API PENTRU DASHBOARD
+        // --- API DATA (JSON) ---
         if (reqStr.find("GET /data") != string::npos) {
-            string jsonBody = "{ \"speed\": " + to_string(globalSpeed) + ", \"rpm\": " + to_string(globalRPM) + " }";
+            string jsonBody = "{";
+            jsonBody += "\"speed\": " + to_string(globalSpeed) + ",";
+            jsonBody += "\"rpm\": " + to_string(globalRPM) + ",";
+            jsonBody += "\"maxRpm\": " + to_string(globalMaxRPM) + ",";
+            jsonBody += "\"gear\": " + to_string(globalGear) + ",";
+            jsonBody += "\"throttle\": " + to_string(globalThrottle) + ",";
+            jsonBody += "\"brake\": " + to_string(globalBrake);
+            jsonBody += "}";
+
             string response = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\nConnection: close\r\n\r\n" + jsonBody;
             send(clientSocket, response.c_str(), response.length(), 0);
         }
-        // HTML MODERN
+        // --- DESIGN MODERN (HTML/CSS) ---
         else {
             string html = "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nConnection: close\r\n\r\n";
-            html += "<html><head><meta name='viewport' content='width=device-width, initial-scale=1'>";
+            html += "<html><head><meta name='viewport' content='width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0'>";
             html += "<style>";
-            html += "body { background: #121212; color: white; font-family: 'Arial', sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; }";
-            html += ".card { background: #1e1e1e; padding: 20px; border-radius: 15px; width: 80%; max-width: 400px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); text-align: center; }";
-            html += ".value { font-size: 80px; font-weight: bold; color: #00ffcc; }";
-            html += ".label { color: #888; letter-spacing: 2px; font-size: 14px; margin-bottom: 5px; }";
-            html += ".rpm-bar-bg { width: 100%; height: 10px; background: #333; border-radius: 5px; margin-top: 20px; overflow: hidden; }";
-            html += ".rpm-bar-fill { height: 100%; background: linear-gradient(90deg, #00ffcc, #ffff00, #ff0000); width: 0%; transition: width 0.1s linear; }";
+            // CSS - STILIZARE
+            html += "body { background-color: #050505; color: white; font-family: 'Segoe UI', sans-serif; overflow: hidden; height: 100vh; margin: 0; display: flex; flex-direction: column; }";
+
+            // Container Principal
+            html += ".dashboard { flex: 1; display: flex; position: relative; }";
+
+            // Pedale (Laterale)
+            html += ".pedal-bar { width: 40px; height: 100%; background: #111; position: absolute; top: 0; display: flex; align-items: flex-end; }";
+            html += ".left { left: 0; border-right: 2px solid #333; }";
+            html += ".right { right: 0; border-left: 2px solid #333; }";
+            html += ".pedal-fill { width: 100%; transition: height 0.05s linear; opacity: 0.8; }";
+            html += "#brake-fill { background: #ff0040; height: 0%; box-shadow: 0 0 15px #ff0040; }";
+            html += "#throttle-fill { background: #00ff80; height: 0%; box-shadow: 0 0 15px #00ff80; }";
+
+            // Centru (Viteza si Gear)
+            html += ".center-panel { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 2; }";
+            html += ".gear-display { font-size: 160px; font-weight: 900; color: #fff; text-shadow: 0 0 30px rgba(255,255,255,0.6); line-height: 1; }";
+            html += ".speed-display { font-size: 50px; color: #00eaff; font-weight: bold; margin-top: 10px; }";
+            html += ".speed-label { font-size: 16px; color: #555; letter-spacing: 3px; }";
+
+            // RPM Bar (Jos)
+            html += ".rpm-container { width: 100%; height: 60px; background: #111; position: relative; border-top: 2px solid #333; }";
+            html += ".rpm-fill { height: 100%; background: linear-gradient(90deg, #0040ff, #00ff80, #ff0000); width: 0%; transition: width 0.05s linear; }";
+            html += ".rpm-text { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-weight: bold; font-size: 20px; text-shadow: 1px 1px 2px black; }";
+
+            // Animatie Shift Light
+            html += "@keyframes flashRed { 0% { background-color: #ff0000; } 50% { background-color: #330000; } 100% { background-color: #ff0000; } }";
+            html += ".shifting { animation: flashRed 0.08s infinite; }"; // Foarte agresiv
+
             html += "</style></head><body>";
 
-            html += "<div class='card'>";
-            html += "<div class='label'>VITEZA</div>";
-            html += "<div class='value' id='spd'>0</div>";
-            html += "<div class='label'>KM/H</div>";
-            html += "<div class='rpm-bar-bg'><div class='rpm-bar-fill' id='rpm'></div></div>";
-            html += "<div class='label' style='margin-top: 5px;'>RPM MONITOR</div>";
+            // LAYOUT
+            html += "<div class='dashboard' id='dash-bg'>";
+            html += "  <div class='pedal-bar left'><div class='pedal-fill' id='brake-fill'></div></div>"; // Frana
+            html += "  <div class='center-panel'>";
+            html += "     <div class='gear-display' id='gear'>N</div>";
+            html += "     <div class='speed-display'><span id='speed'>0</span> <span class='speed-label'>KM/H</span></div>";
+            html += "  </div>";
+            html += "  <div class='pedal-bar right'><div class='pedal-fill' id='throttle-fill'></div></div>"; // Acceleratia
             html += "</div>";
 
+            html += "<div class='rpm-container'>";
+            html += "   <div class='rpm-fill' id='rpm-bar'></div>";
+            html += "   <div class='rpm-text'><span id='rpm-val'>0</span> RPM</div>";
+            html += "</div>";
+
+            // JAVASCRIPT
             html += "<script>";
             html += "setInterval(() => { fetch('/data').then(r=>r.json()).then(d=>{";
-            html += "  document.getElementById('spd').innerText = d.speed;";
-            html += "  document.getElementById('rpm').style.width = (d.rpm / 9000 * 100) + '%';"; // Presupunem max 9000 RPM
-            html += "})}, 50);"; // 20 FPS
+
+            // 1. Viteza si RPM
+            html += "  document.getElementById('speed').innerText = d.speed;";
+            html += "  document.getElementById('rpm-val').innerText = d.rpm;";
+
+            // 2. Bara RPM
+            html += "  let rpmPct = 0;";
+            html += "  if(d.maxRpm > 0) rpmPct = (d.rpm / d.maxRpm) * 100;";
+            html += "  if(rpmPct > 100) rpmPct = 100;";
+            html += "  document.getElementById('rpm-bar').style.width = rpmPct + '%';";
+
+            // 3. GEAR LOGIC
+            html += "  let g = d.gear;";
+            html += "  let displayG = g;";
+
+            html += "  if (g == 0) displayG = 'R';";       // 0 e Reverse
+            html += "  else if (g == 11) displayG = 'N';"; // 11 e Neutral (deseori)
+            // Daca vezi ca Neutral apare ca 'R', schimba conditia de mai sus
+
+            html += "  document.getElementById('gear').innerText = displayG;";
+
+            // 4. Pedale
+            html += "  document.getElementById('throttle-fill').style.height = d.throttle + '%';";
+            html += "  document.getElementById('brake-fill').style.height = d.brake + '%';";
+
+            // 5. Shift Light (Doar bara de jos sau tot ecranul?)
+            html += "  let bg = document.getElementById('dash-bg');";
+            html += "  if(rpmPct > 92) { bg.classList.add('shifting'); }";
+            html += "  else { bg.classList.remove('shifting'); }";
+
+            html += "})}, 30);";
             html += "</script></body></html>";
 
             send(clientSocket, html.c_str(), html.length(), 0);
@@ -176,44 +248,75 @@ int main() {
     // 3. Loop Principal
     while (true) {
         int recv_len = recvfrom(server_socket, buffer, 1024, 0, (struct sockaddr*)&client, &slen);
+
         if (recv_len > 0) {
+            // --- DIAGNOSTICARE ---
+            // Asta iti va spune exact ce se intampla
+            GoToXY(0, 0);
+            cout << "Marime Pachet: " << recv_len << " bytes   ";
+            if (recv_len == 232) cout << "(FORMAT GRESIT! Schimba in CAR DASH)";
+            if (recv_len == 324) cout << "(FORMAT CORECT: Car Dash)";
+
+            // Accesam datele standard
             ForzaData* data = (ForzaData*)buffer;
 
-            // Calcule
+            // Calcule Fizica
             float speedMPS = sqrt(pow(data->VelocityX, 2) + pow(data->VelocityY, 2) + pow(data->VelocityZ, 2));
             float speedKPH = speedMPS * 3.6f;
 
             // Update Globale
             globalSpeed = (int)speedKPH;
             globalRPM = (int)data->CurrentEngineRpm;
+            globalMaxRPM = (int)data->EngineMaxRpm;
 
-            // --- DESENARE DINAMICA (Doar valorile) ---
+            // --- CITIRE PEDALE (OFFSET CORECT PENTRU CAR DASH) ---
+            // In formatul "Car Dash" (324 bytes):
+            // Accel = 315
+            // Brake = 316
+            // Gear  = 319
 
-            // 1. Afisare Viteza (Centrat in casuta)
-            GoToXY(6, 7);
-            SetColor(14); // Galben
-            if (speedKPH > 200) SetColor(12); // Rosu daca e viteza mare
-            cout << setw(3) << (int)speedKPH; // setw aliniaza frumos
+            unsigned char* rawBytes = (unsigned char*)buffer;
 
-            // 2. Afisare RPM (Bara progresiva in consola)
-            GoToXY(27, 7);
-            SetColor(8); cout << "[                    ]"; // Stergem bara veche (background)
-            GoToXY(28, 7);
+            if (recv_len >= 320) { // Citim doar daca avem pachetul mare
+                unsigned char rawAccel = rawBytes[315];
+                unsigned char rawBrake = rawBytes[316];
+                unsigned char rawGear = rawBytes[319];
 
-            // Calculam cati "patratele" sa desenam
-            float rpmPercent = data->CurrentEngineRpm / data->EngineMaxRpm;
-            int blocks = (int)(rpmPercent * 20.0f); // Bara are 20 caractere lungime
-            if (blocks > 20) blocks = 20;
-
-            // Desenam bara colorata
-            for (int i = 0; i < blocks; i++) {
-                if (i < 15) SetColor(10); // Verde
-                else SetColor(12);       // Rosu pe zona rosie
-                cout << char(219);       // Caracterul 'block' (plin)
+                globalThrottle = (int)((rawAccel / 255.0f) * 100.0f);
+                globalBrake = (int)((rawBrake / 255.0f) * 100.0f);
+                globalGear = (int)rawGear;
             }
 
-            // CSV Log
-            logFile << data->TimestampMS << "," << speedKPH << "," << data->CurrentEngineRpm << "\n";
+            // --- AFISARE DEBUG PEDALE PE CONSOLA PC ---
+            // Ca sa vedem daca le citim bine inainte sa le trimitem la telefon
+            GoToXY(2, 18);
+            cout << "Throttle Raw: " << globalThrottle << "%   ";
+            GoToXY(2, 19);
+            cout << "Brake Raw:    " << globalBrake << "%   ";
+            GoToXY(2, 20);
+            cout << "Gear Raw:     " << globalGear << "    ";
+
+            // --- DESENARE GRAFICA VITEZA/RPM ---
+            // 1. Viteza
+            GoToXY(6, 7);
+            SetColor(14);
+            if (speedKPH > 200) SetColor(12);
+            cout << setw(3) << (int)speedKPH;
+
+            // 2. RPM Bar
+            GoToXY(27, 7); SetColor(8); cout << "[                    ]";
+            GoToXY(28, 7);
+
+            float rpmPercent = 0;
+            if (data->EngineMaxRpm > 0) rpmPercent = data->CurrentEngineRpm / data->EngineMaxRpm;
+            int blocks = (int)(rpmPercent * 20.0f);
+            if (blocks > 20) blocks = 20;
+
+            for (int i = 0; i < blocks; i++) {
+                if (i < 15) SetColor(10);
+                else SetColor(12);
+                cout << char(219);
+            }
         }
     }
 }
